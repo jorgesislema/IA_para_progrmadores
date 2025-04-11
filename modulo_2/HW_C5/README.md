@@ -85,7 +85,7 @@ Abre tu navegador en [http://localhost:3000](http://localhost:3000) y ¡listo!
 
 ## 📸 Resultado
 
-![Captura de pantalla](./public/landing-results.png)
+![Captura de pantalla](https://github.com/jorgesislema/IA_para_progrmadores/blob/main/modulo_2/HW_C5/Screenshot%202025-04-11%20at%2011-36-17%20Create%20Next%20App.png?raw=true)
 
 ---
 
