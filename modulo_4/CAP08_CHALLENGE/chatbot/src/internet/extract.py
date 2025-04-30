@@ -1,123 +1,125 @@
-#librerias
-import requests
-from bs4 import BeautifulSoup
+# src/internet/extract.py
+import logging
 from typing import List, Dict, Optional, Tuple
 from urllib.parse import urlparse
+# Quitar requests y BeautifulSoup si newspaper los maneja internamente
+# import requests
+# from bs4 import BeautifulSoup
+from newspaper import Article, ArticleException # Usar newspaper4k
+
+log = logging.getLogger(__name__)
 
 def is_valid_url(url: str) -> bool:
-    """Verificamos si una URL tiene un esquema y un netloc válidos."""
+    """Verifica si una URL tiene un esquema y un netloc válidos."""
+    if not isinstance(url, str): return False
     try:
         result = urlparse(url)
-        return all([result.scheme, result.netloc])
+        # Permitir http y https
+        return result.scheme in ['http', 'https'] and bool(result.netloc)
     except ValueError:
         return False
 
-def extract_text_from_url(url: str, timeout: int = 10) -> Optional[str]:
+def extract_text_from_url_newspaper(url: str, language: str = 'es', timeout: int = 15) -> Optional[str]:
     """
-    Extraemos el texto principal de una URL dada.
+    Extrae el texto principal de una URL dada usando newspaper4k.
 
     Args:
         url: La URL de la página web.
-        timeout: Tiempo máximo de espera para la solicitud HTTP.
+        language: Código de idioma ISO 639-1 (ej. 'es', 'en') para ayudar a newspaper.
+        timeout: Tiempo máximo de espera para la solicitud HTTP subyacente.
 
     Returns:
-        El texto extraído o None si ocurre un error o el contenido no es adecuado.
+        El texto del artículo extraído o None si ocurre un error.
     """
     if not is_valid_url(url):
-        print(f"URL inválida o incompleta: {url}")
+        log.warning(f"URL inválida o no soportada para extracción: {url}")
         return None
 
+    log.debug(f"Intentando extraer texto de: {url} (Idioma: {language}, Timeout: {timeout}s)")
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        response = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
-        response.raise_for_status() # Lanza excepción para errores HTTP
+        # Configurar el artículo
+        article = Article(url, language=language, fetch_images=False, request_timeout=timeout)
+        # Descargar el contenido HTML
+        article.download()
+        # Parsear el contenido para extraer información
+        article.parse()
 
-        # Verificar si el contenido es HTML
-        content_type = response.headers.get('Content-Type', '').lower()
-        if 'text/html' not in content_type:
-            print(f"Contenido no es HTML para {url} (Tipo: {content_type}). Saltando.")
+        # --- Verificaciones adicionales ---
+        # Comprobar si se pudo parsear correctamente (a veces parsea pero no extrae texto)
+        if not article.is_parsed:
+             log.warning(f"Newspaper no pudo parsear contenido útil de: {url}")
+             return None
+
+        # Extraer el texto principal
+        extracted_text = article.text
+
+        # Verificar si el texto extraído es significativo
+        if not extracted_text or len(extracted_text.strip()) < 100: # Umbral mínimo de caracteres
+            log.warning(f"Texto extraído de {url} es demasiado corto o vacío después del parseo.")
+            # A veces el título es útil si el texto falla
+            if article.title and len(article.title) > 20:
+                 log.info(f"Usando título como fallback para {url}: '{article.title}'")
+                 return f"Título: {article.title}" # Devolver solo el título como fallback
             return None
 
-        # Usamos encoding detectado por requests si está disponible, sino UTF-8
-        response.encoding = response.apparent_encoding or 'utf-8'
+        log.debug(f"Texto extraído de {url} (primeros 100 chars): {extracted_text[:100]}...")
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+        # Limitar la longitud para no sobrecargar al LLM (opcional pero recomendado)
+        max_len = 4000 # Ajustar según necesidad
+        final_text = extracted_text.strip() # Quitar espacios al inicio/fin
+        if len(final_text) > max_len:
+            log.info(f"Texto de {url} truncado a {max_len} caracteres.")
+            return final_text[:max_len] + "..."
+        else:
+            return final_text
 
-        # Eliminamos elementos no deseados (scripts, styles, nav, footers)
-        for element in soup(["script", "style", "nav", "footer", "aside", "form", "header"]):
-            element.decompose()
-
-        # Extraemos texto de etiquetas comunes de contenido
-        main_content = soup.find('article') or soup.find('main') or soup.body
-        if not main_content:
-             # Si no hay body (extraño), intentar con todo el soup
-            main_content = soup
-
-        text_parts = main_content.find_all(string=True, recursive=True)
-
-        # Filtramos y limpiamos el texto
-        visible_text = ""
-        for part in text_parts:
-            stripped = part.strip()
-            # Evitar texto vacío, comentarios, o texto dentro de etiquetas eliminadas indirectamente
-            if stripped and not part.parent.name in ["script", "style", "meta", "[document]"]:
-                 # Añadir espacio entre elementos para mejor legibilidad
-                visible_text += stripped + " "
-
-        # Limpiamos espacios múltiples y saltos de línea excesivos
-        cleaned_text = ' '.join(visible_text.split())
-
-        # Devolver None si el texto es demasiado corto (probablemente no útil)
-        if len(cleaned_text) < 100:
-            print(f"Texto extraído de {url} es muy corto. Saltando.")
-            return None
-
-        # Limitamos la longitud para no sobrecargar al LLM (opcional)
-        max_len = 5000 # Caracteres
-        return cleaned_text[:max_len] + ("..." if len(cleaned_text) > max_len else "")
-
-
-    except requests.exceptions.Timeout:
-        print(f"Timeout al intentar acceder a {url}")
-        return None
-    except requests.exceptions.HTTPError as e:
-        print(f"Error HTTP {e.response.status_code} al acceder a {url}")
-        return None
-    except requests.exceptions.RequestException as e:
-        print(f"Error de conexión al acceder a {url}: {e}")
+    except ArticleException as e:
+        # Errores específicos de Newspaper (ej. 404, fallo de descarga)
+        log.error(f"Newspaper ArticleException al procesar {url}: {e}")
         return None
     except Exception as e:
-        print(f"Error inesperado al procesar {url}: {e}")
+        # Captura errores inesperados durante el proceso de newspaper
+        log.exception(f"Error inesperado al procesar {url} con Newspaper:")
         return None
 
-
-def extract_content_from_links(links: List[str]) -> Dict[str, str]:
+def extract_content_from_links(links: List[str], language: str = 'es') -> Dict[str, str]:
     """
-    Extrae texto de una lista de URLs.
+    Extrae texto de una lista de URLs usando newspaper4k.
 
     Args:
         links: Lista de URLs a procesar.
+        language: Código de idioma para newspaper.
 
     Returns:
-        Un diccionario donde las claves son las URLs y los valores son
-        el texto extraído (o un mensaje de error si falló).
+        Un diccionario donde las claves son las URLs válidas y procesadas
+        y los valores son el texto extraído. URLs fallidas no se incluyen.
     """
     extracted_data = {}
     if not links:
         return {}
 
-    print("\n** Extrayendo contenido de las fuentes... **")
+    log.info(f"Iniciando extracción de contenido para {len(links)} links...")
+    from src.streaming.streamer import stream_message # Importación local
+    stream_message("\n** Extrayendo contenido de las fuentes... **")
+
+    processed_count = 0
+    success_count = 0
     for url in links:
-        print(f" - Procesando: {url}")
-        content = extract_text_from_url(url)
+        processed_count += 1
+        # Usar la nueva función de extracción
+        content = extract_text_from_url_newspaper(url, language=language)
         if content:
             extracted_data[url] = content
+            success_count += 1
+            log.debug(f"({processed_count}/{len(links)}) Éxito extrayendo de: {url}")
         else:
-            # Podríamos decidir no incluir URLs fallidas o incluir un marcador
-            # extracted_data[url] = "Error: No se pudo extraer contenido."
-            print(f"   -> No se pudo extraer contenido útil de {url}")
+            # El log de error/warning ya se hizo dentro de extract_text_from_url_newspaper
+            log.warning(f"({processed_count}/{len(links)}) Falló la extracción para: {url}")
 
-    print("** Extracción completada. **")
+    log.info(f"Extracción completada. {success_count} de {len(links)} links procesados exitosamente.")
+    stream_message("** Extracción completada. **")
     return extracted_data
+
+# Mantener la función anterior con BeautifulSoup por si se quiere comparar o usar como fallback
+# (Renombrada para evitar colisión)
+# def extract_text_from_url_bs(url: str, timeout: int = 10) -> Optional[str]: ... (código anterior)
