@@ -3,3 +3,5 @@ beautifulsoup4
 python-dotenv
 newspaper4k
 pandas
+lxml[html_clean]
+pytest 
