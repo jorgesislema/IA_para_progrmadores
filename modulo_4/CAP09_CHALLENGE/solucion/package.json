@@ -1,0 +1,20 @@
+{
+  "name": "news-query-system",
+  "version": "1.0.0",
+  "description": "Sistema de consulta de noticias con LangChain",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "start": "node main.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["langchain", "news", "llm"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@langchain/core": "^0.1.0",
+    "@langchain/openai": "^0.0.10",
+    "dotenv": "^16.3.1",
+    "langchain": "^0.1.0"
+  }
+}
