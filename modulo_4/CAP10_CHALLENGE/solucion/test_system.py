@@ -1,0 +1,143 @@
+"""
+Script para realizar pruebas automatizadas del Sistema de Atención al Cliente.
+
+Este script prueba las diferentes funcionalidades del sistema:
+1. Consulta de balance de cuentas
+2. Consulta de información bancaria
+3. Respuestas generales
+"""
+
+import unittest
+import os
+import sys
+from unittest.mock import patch, MagicMock
+
+# Añadir el directorio de la solución al path para poder importar los módulos
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Importar la clase del sistema de atención al cliente
+from main import CustomerSupportSystem, LLM_MODELS
+
+class TestCustomerSupportSystem(unittest.TestCase):
+    """
+    Clase para realizar pruebas automatizadas del Sistema de Atención al Cliente.
+    """
+    
+    @classmethod
+    def setUpClass(cls):
+        """
+        Configuración inicial para las pruebas.
+        """
+        # Asegurar que la variable de entorno está configurada para las pruebas
+        if "OPENAI_API_KEY" not in os.environ:
+            os.environ["OPENAI_API_KEY"] = "test_api_key"
+      def setUp(self):
+        """
+        Configuración para cada prueba individual.
+        """
+        # Crear un mock del almacén de vectores FAISS
+        self.mock_vectorstore = MagicMock()
+        self.mock_vectorstore.similarity_search.return_value = [
+            MagicMock(page_content="Información de prueba sobre apertura de cuentas")
+        ]
+        
+        # Crear un mock del LLM
+        self.mock_llm = MagicMock()
+        self.mock_llm.predict.return_value = "Respuesta de prueba"
+        
+        # Parchar los métodos que se utilizan para cargar los recursos
+        with patch('main.CustomerSupportSystem._load_balance_data') as mock_load_balance, \
+             patch('main.CustomerSupportSystem._load_vector_store') as mock_load_vector, \
+             patch('main.CustomerSupportSystem._setup_router_chain') as mock_router:
+              # Configurar los mocks
+            mock_load_balance.return_value = {
+                "V-12345678": {"Nombre": "Cliente de Prueba", "Balance": 1000.0}
+            }
+            mock_load_vector.return_value = self.mock_vectorstore
+            
+            # Mock del router chain
+            mock_router_chain = MagicMock()
+            mock_router.return_value = mock_router_chain
+            
+            # Inicializar el sistema con el mock LLM
+            self.system = CustomerSupportSystem(llm=self.mock_llm)
+            
+            # Configurar el comportamiento del router para las pruebas
+            self.system.router_chain.run = MagicMock(return_value='{"destination": "general"}')
+    
+    def test_balance_query(self):
+        """
+        Prueba la funcionalidad de consulta de balance.
+        """
+        # Configurar el router para devolver la ruta de consulta de balance
+        self.system.router_chain.run.return_value = '{"destination": "consulta_balance"}'
+        
+        # Crear un mock de la cadena de extracción
+        with patch('main.LLMChain') as mock_chain:
+            mock_instance = MagicMock()
+            mock_instance.run.return_value = "V-12345678"
+            mock_chain.return_value = mock_instance
+            
+            # Ejecutar la consulta
+            response = self.system.process_query("¿Cuál es mi balance? Mi cédula es V-12345678")
+            
+            # Verificar que la respuesta incluye la información esperada
+            self.assertIn("Cliente de Prueba", response)
+            self.assertIn("1000.0", response)
+    
+    def test_knowledge_query(self):
+        """
+        Prueba la funcionalidad de consulta de conocimiento bancario.
+        """
+        # Configurar el router para devolver la ruta de información bancaria
+        self.system.router_chain.run.return_value = '{"destination": "info_bancaria"}'
+        
+        # Crear un mock de la cadena de conocimiento
+        with patch('main.LLMChain') as mock_chain:
+            mock_instance = MagicMock()
+            mock_instance.run.return_value = "Para abrir una cuenta, debe visitar una sucursal o acceder a nuestro sitio web."
+            mock_chain.return_value = mock_instance
+            
+            # Ejecutar la consulta
+            response = self.system.process_query("¿Cómo abro una cuenta?")
+            
+            # Verificar que se realizó la búsqueda de similitud
+            self.mock_vectorstore.similarity_search.assert_called_once()
+            
+            # Verificar que la respuesta contiene la información esperada
+            self.assertEqual(response, "Para abrir una cuenta, debe visitar una sucursal o acceder a nuestro sitio web.")
+    
+    def test_general_query(self):
+        """
+        Prueba la funcionalidad de consulta general.
+        """
+        # Configurar el router para devolver la ruta general
+        self.system.router_chain.run.return_value = '{"destination": "general"}'
+        
+        # Crear un mock de la cadena general
+        with patch('main.LLMChain') as mock_chain:
+            mock_instance = MagicMock()
+            mock_instance.run.return_value = "BANCO HENRY opera de lunes a viernes de 9 AM a 5 PM."
+            mock_chain.return_value = mock_instance
+            
+            # Ejecutar la consulta
+            response = self.system.process_query("¿Cuál es el horario de atención?")
+            
+            # Verificar que la respuesta contiene la información esperada
+            self.assertEqual(response, "BANCO HENRY opera de lunes a viernes de 9 AM a 5 PM.")
+    
+    def test_error_handling(self):
+        """
+        Prueba el manejo de errores en el sistema.
+        """
+        # Configurar el router para lanzar una excepción
+        self.system.router_chain.run.side_effect = Exception("Error de prueba")
+        
+        # Ejecutar la consulta
+        response = self.system.process_query("Esta consulta causará un error")
+        
+        # Verificar que la respuesta es el mensaje de error estándar
+        self.assertIn("Lo siento, ha ocurrido un error", response)
+
+if __name__ == "__main__":
+    unittest.main()
