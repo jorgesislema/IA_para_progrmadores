@@ -1,0 +1,13 @@
+## ¿Cómo realizar una transferencia en BANCO HENRY?
+
+Para realizar una transferencia bancaria en BANCO HENRY, sigue estos pasos:
+1. Inicia sesión en tu banca en línea o aplicación móvil con tu usuario y contraseña.
+2. Ve a la sección "Transferencias" o "Pagos y transferencias".
+3. Selecciona la opción "Nueva transferencia".
+4. Elige la cuenta de origen desde la cual deseas transferir el dinero.
+5. Introduce el número de cuenta del destinatario y verifica que los datos sean correctos.
+6. Ingresa el monto que deseas transferir.
+7. Añade una descripción o referencia para la transferencia (opcional pero recomendado).
+8. Revisa todos los detalles de la transferencia antes de confirmar.
+9. Autoriza la operación utilizando tu método de seguridad (código SMS, token, clave especial, etc.).
+10. Una vez completada la transferencia, guarda o descarga el comprobante para tus registros.
